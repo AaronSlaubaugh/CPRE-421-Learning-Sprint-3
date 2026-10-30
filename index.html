@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timing Side-Channel Lab</title>
+<style>
+:root{--bg:#0b1020;--panel:#141d32;--panel2:#1a2740;--ink:#eef3ff;--muted:#aab8d1;--line:#2b3a58;--cyan:#66e3dc;--pink:#ff8aa5;--gold:#ffd27a;--green:#a6e3a1}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 20% 0%,#1b3150 0,transparent 45%),var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1100px;margin:auto;padding:34px 22px 60px}.eyebrow{color:var(--cyan);font-size:.78rem;font-weight:800;letter-spacing:.16em;text-transform:uppercase}
+h1{font-size:clamp(2.1rem,5vw,3.7rem);line-height:1.04;margin:.5rem 0 1rem;letter-spacing:-.04em}.intro{max-width:760px;color:var(--muted);font-size:1.08rem}
+.grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px;margin-top:28px}.panel{background:linear-gradient(160deg,var(--panel),#10182a);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:0 16px 50px #0003}
+h2{font-size:1.2rem;margin:0 0 14px}h3{font-size:1rem;margin:20px 0 8px;color:var(--cyan)}
+label{display:block;font-weight:700;font-size:.88rem;margin:13px 0 6px;color:#dce7fb}input[type=text],select{width:100%;background:#0b1426;border:1px solid #3b4b69;border-radius:9px;padding:11px 12px;color:var(--ink);font:inherit}
+input:focus,select:focus,button:focus{outline:2px solid var(--cyan);outline-offset:2px}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full{grid-column:1/-1}
+button{background:var(--cyan);color:#07151d;border:0;border-radius:10px;padding:12px 17px;font-weight:850;font-size:.95rem;cursor:pointer;margin-top:16px}button.secondary{background:#273854;color:var(--ink);border:1px solid #415473}
+.small{font-size:.84rem;color:var(--muted)}.mode{display:flex;gap:8px;flex-wrap:wrap}.mode label{margin:0;display:flex;align-items:center;gap:7px;background:#0c1527;border:1px solid var(--line);padding:9px 12px;border-radius:9px;cursor:pointer}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:16px}.metric{background:#0b1426;border:1px solid var(--line);padding:12px;border-radius:12px}.metric b{display:block;font-size:1.45rem;color:var(--gold)}.metric span{font-size:.75rem;color:var(--muted)}
+.track{height:13px;background:#09111f;border:1px solid var(--line);border-radius:99px;overflow:hidden;margin:9px 0 5px}.fill{height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--gold));transition:width .25s}
+.charrow{display:flex;gap:5px;flex-wrap:wrap;margin:12px 0}.ch{width:34px;height:40px;display:grid;place-items:center;border-radius:7px;background:#25334d;border:1px solid #3d5070;font-family:ui-monospace,monospace;font-weight:800}.ch.hit{background:#173d3c;border-color:var(--green);color:var(--green)}.ch.fail{background:#4a2033;border-color:var(--pink);color:var(--pink)}.ch.skip{opacity:.35}
+.result{border-left:3px solid var(--cyan);padding:10px 13px;background:#0b1426;border-radius:0 9px 9px 0;margin-top:14px;min-height:52px}
+.callout{background:#182942;border:1px solid #324c70;padding:15px;border-radius:12px;color:#dce7fb;margin-top:16px}.callout strong{color:var(--gold)}
+footer{margin-top:22px;color:var(--muted);font-size:.82rem}code{color:var(--cyan)}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">Interactive security lesson · complexity + side channels</div>
+<h1>Timing<br>Side-Channel Lab</h1>
+<p class="intro">A program can reveal information through <em>how long</em> it takes to run—not just through what it returns. Explore how an early-exit string comparison can leak the position of the first incorrect character.</p>
+<div class="grid">
+<section class="panel">
+<h2>01 / Configure a comparison</h2>
+<div class="controls">
+<div><label for="secret">Secret string</label><input id="secret" type="text" value="ORBITAL" maxlength="24"></div>
+<div><label for="guess">Your guess</label><input id="guess" type="text" value="ORXITOL" maxlength="24"></div>
+<div class="full"><label>Comparison strategy</label>
+<div class="mode">
+<label><input type="radio" name="mode" value="early" checked> Early exit</label>
+<label><input type="radio" name="mode" value="constant"> Constant work</label>
+</div></div>
+<div class="full"><label for="noise">Timing noise: <span id="noiseValue">0%</span></label><input id="noise" type="range" min="0" max="80" value="0" style="width:100%;accent-color:var(--cyan)"><p class="small">Add random variation to see why real measurements require repeated samples.</p></div>
+</div>
+<button id="run">Run comparison</button>
+<button class="secondary" id="sample">Try a later mismatch</button>
+<div class="result" id="result" aria-live="polite">Run the comparison to see which characters are examined.</div>
+<h3>Character-by-character trace</h3>
+<div class="small">Green = matched · Pink = first mismatch · Dim = not examined</div>
+<div class="charrow" id="trace"></div>
+</section>
+<section class="panel">
+<h2>02 / What the timing reveals</h2>
+<div class="metrics">
+<div class="metric"><b id="checks">—</b><span>Character checks</span></div>
+<div class="metric"><b id="time">—</b><span>Simulated time (units)</span></div>
+<div class="metric"><b id="verdict">—</b><span>Comparison result</span></div>
+</div>
+<h3>Work performed</h3>
+<div class="small" id="workLabel">No run yet</div><div class="track"><div class="fill" id="workBar"></div></div>
+<p class="small" id="workExplain">The bar compares the number of character checks with the maximum needed for this input.</p>
+<div class="callout"><strong>Key idea:</strong> With early exit, a mismatch near the beginning causes less work than a mismatch near the end. If an attacker can submit guesses and measure time, this difference may reveal a matching prefix.</div>
+<h3>Complexity connection</h3>
+<p class="small" id="complexity">Both strategies are O(n) in the input length. Big-O describes growth, not whether the exact amount of work is independent of secret data.</p>
+</section>
+</div>
+<section class="panel" style="margin-top:18px">
+<h2>03 / Learn the distinction</h2>
+<div class="controls">
+<div><h3>Early-exit comparison</h3><p class="small">Checks characters from left to right and returns as soon as it finds a mismatch. The number of checks depends on the data.</p><code>Best case: O(1)<br>Worst case: O(n)</code></div>
+<div><h3>Constant-work comparison</h3><p class="small">Checks every position up to the maximum input length and accumulates whether any mismatch occurred. Its work count does not reveal the first mismatch position.</p><code>Work per comparison: O(n)</code></div>
+</div>
+<p class="small">This is a simplified teaching model, not a benchmark of a real cryptographic implementation. Real constant-time code must also account for compiler behavior, memory access, CPU effects, and other sources of leakage.</p>
+</section>
+<footer>Safe, local-only demonstration. No network requests, real credentials, or actual timing attack are used.</footer>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const secret=$('secret'), guess=$('guess'), noise=$('noise');
+noise.addEventListener('input',()=> $('noiseValue').textContent=noise.value+'%');
+function compare(){
+ const a=secret.value, b=guess.value, mode=document.querySelector('input[name="mode"]:checked').value;
+ const n=Math.max(a.length,b.length), common=Math.min(a.length,b.length);
+ let checks=0, firstMismatch=-1, equal=a.length===b.length;
+ const states=[];
+ for(let i=0;i<n;i++){
+   const same=i<a.length && i<b.length && a[i]===b[i];
+   if(mode==='early'){
+     if(i>=common || !same){firstMismatch=i;states.push('fail');checks++;break;}
+     states.push('hit');checks++;
+   }else{
+     checks++; states.push(same?'hit':'fail');
+     if(!same && firstMismatch===-1)firstMismatch=i;
+   }
+ }
+ if(mode==='constant' && a.length!==b.length) equal=false;
+ else if(mode==='constant') equal=firstMismatch===-1;
+ if(mode==='early') equal=firstMismatch===-1 && a.length===b.length;
+ const maxChecks=Math.max(n,1);
+ const base=checks*10;
+ const noisePct=Number(noise.value)/100;
+ const jitter=noisePct ? (Math.random()*2-1)*base*noisePct : 0;
+ const simulated=Math.max(0,Math.round(base+jitter));
+ $('checks').textContent=checks;
+ $('time').textContent=simulated;
+ $('verdict').textContent=equal?'Match':'No match';
+ $('workLabel').textContent=`${checks} of ${maxChecks} possible checks`;
+ $('workBar').style.width=(checks/maxChecks*100)+'%';
+ $('complexity').textContent=mode==='early'
+ ? 'Early exit: O(1) best case and O(n) worst case. The number of checks exposes how far the matching prefix extends.'
+ : 'Constant-work model: O(n) checks for every input of this length. The first mismatch does not change the amount of work.';
+ $('result').textContent=equal?'The strings match.':'Mismatch detected'+(firstMismatch>=0?' at position '+(firstMismatch+1):'')+'. '+(mode==='early'?'The comparison stopped at the first mismatch.':'The comparison continued through every position.');
+ $('trace').innerHTML='';
+ states.forEach((s,i)=>{const d=document.createElement('div');d.className='ch '+s;d.textContent=(i< a.length?a[i]:'∅');d.title='Position '+(i+1);$('trace').appendChild(d);});
+ for(let i=states.length;i<n;i++){const d=document.createElement('div');d.className='ch skip';d.textContent=i<a.length?a[i]:'∅';$('trace').appendChild(d);}
+}
+$('run').addEventListener('click',compare);
+$('sample').addEventListener('click',()=>{const s=secret.value;if(s.length<2)return;guess.value=s[0]+'?'+s.slice(2);compare();});
+document.querySelectorAll('input[name="mode"]').forEach(x=>x.addEventListener('change',compare));
+compare();
+</script></body></html>
